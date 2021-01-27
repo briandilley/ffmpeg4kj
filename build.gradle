@@ -36,7 +36,7 @@ apply plugin: "kotlin"
 apply plugin: "com.adarshr.test-logger"
 
 group = "com.github.briandilley.ffmpeg4kj"
-version = "2.0-SNAPSHOT"
+version = "0.1-SNAPSHOT"
 description = """
 Kotlin Java library for FFMpeg. Not a direct wrapper, but an OOP approach.
 Usable with Kotlin, Java, or any other JVM language.
