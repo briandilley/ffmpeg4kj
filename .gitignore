@@ -1,3 +1,7 @@
 .gradle
 build/
 .idea/
+native/generated/
+native/cmake-build-*
+out/
+kotlin/src/main/resources/native/
