@@ -1,4 +1,5 @@
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+import java.net.URI
 
 val GENERATED_SOURCE_DIR = "${project.rootDir}/native/src/main/generated"
 val HOST_ARCH = "${System.getProperty("os.name").toLowerCase().replace("mac os x", "darwin")}-${System.getProperty("os.arch").toLowerCase()}"
@@ -12,6 +13,28 @@ val NATIVE_ARCHITECTURES = setOf(
     //"linux-arm64"
 )
 val JAVA_TARGET_VERSION = "1.8"
+
+buildscript {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("gradle.plugin.net.wooga.gradle:atlas-github:1.0.1")
+        classpath("net.researchgate:gradle-release:2.7.0")
+        classpath("org.ajoberstar:grgit:2.3.0")
+        classpath("org.kohsuke:github-api:1.93")
+    }
+}
+
+plugins {
+    id("org.jetbrains.dokka") version "1.4.20"
+    kotlin("jvm") version "1.4.21"
+    id("maven-publish")
+    jacoco
+    idea
+    signing
+}
 
 fun buildNative(arch: String = HOST_ARCH) {
     val nativeWorkDir = "${project.rootDir}/native/cmake-build-$arch-Release"
@@ -34,13 +57,6 @@ fun buildNative(arch: String = HOST_ARCH) {
     }
 }
 
-plugins {
-    id("org.jetbrains.dokka") version "1.4.20"
-    kotlin("jvm") version "1.4.10"
-    jacoco
-    idea
-}
-
 repositories {
     gradlePluginPortal()
     mavenCentral()
@@ -49,7 +65,7 @@ repositories {
 
 dependencies {
 
-    dokkaHtmlPlugin("org.jetbrains.dokka:kotlin-as-java-plugin:1.4.20")
+    dokkaHtmlPlugin("org.jetbrains.dokka:kotlin-as-java-plugin:1.4.21")
 
     //api "org.jetbrains.kotlin:kotlin-reflect:${kotlinVersion}"
 
@@ -67,6 +83,9 @@ description = """
     """.trimIndent()
 
 val releaseVersion = !version.toString().endsWith("-SNAPSHOT")
+
+var documentationJar: Any? = null
+var sourcesJar: Any? = null
 
 tasks {
 
@@ -162,26 +181,106 @@ tasks {
         }
     }
 
-    val documentationJar by creating(Jar::class) {
+    val _documentationJar by creating(Jar::class) {
         dependsOn(dokkaHtml)
         archiveClassifier.set("javadoc")
         from(dokkaHtml.get().outputs)
     }
+    documentationJar = _documentationJar
 
-    val sourcesJar by creating(Jar::class) {
+    val _sourcesJar by creating(Jar::class) {
         dependsOn(classes)
         archiveClassifier.set("sources")
         from(sourceSets["main"].allSource)
     }
+    sourcesJar = _sourcesJar
 
     artifacts {
-        add("archives", documentationJar)
-        add("archives", sourcesJar)
+        add("archives", documentationJar!!)
+        add("archives", sourcesJar!!)
     }
 
 }
 
+fun findConfigProperty(name: String): String?
+        = (project.findProperty("ffmpeg4kj.$name") ?: project.findProperty(name))?.toString()
 
-/*
-apply from: 'publishing.gradle'
-*/
+val signingSecretKeyRingFile = findConfigProperty("signing.secretKeyRingFile")
+val signingPassword = findConfigProperty("signing.password")
+val signingKeyId = findConfigProperty("signing.keyId")
+val githubToken = findConfigProperty("github.token")
+val sonatypeUsername = findConfigProperty("sonatype.username")
+val sonatypePassword = findConfigProperty("sonatype.password")
+
+project.publishing {
+    repositories {
+        maven {
+            name = "sonatype"
+            url = URI(if (releaseVersion) {
+                "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
+            } else {
+                "https://oss.sonatype.org/content/repositories/snapshots/"
+            })
+            credentials {
+                username = sonatypeUsername
+                password = sonatypePassword
+            }
+        }
+    }
+
+    publications {
+        create<MavenPublication>("ffmpeg4kj") {
+            from(components["java"])
+            artifact(documentationJar!!)
+            artifact(sourcesJar!!)
+
+            pom {
+                name.set(rootProject.name)
+                description.set(project.description)
+                url.set("https://github.com/briandilley/ffmpeg4kj")
+                issueManagement {
+                    system.set("GitHub")
+                    url.set("https://github.com/briandilley/ffmpeg4kj/issues")
+                }
+                ciManagement {
+                    system.set("Github Actions")
+                    url.set("https://github.com/briandilley/ffmpeg4kj/actions")
+                }
+                inceptionYear.set("2013")
+                developers {
+                    developer {
+                        id.set("briandilley")
+                        name.set("Brian Dilley")
+                        email.set("brian.dilley@gmail.com.com")
+                        url.set("https://github.com/briandilley")
+                        timezone.set("America/Los_Angeles")
+                    }
+                }
+                licenses {
+                    license {
+                        name.set("The MIT License (MIT)")
+                        url.set("https://github.com/briandilley/ffmpeg4kj/blob/develop/LICENSE")
+                        distribution.set("repo")
+                        comments.set("A business-friendly OSS license")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:https://github.com/briandilley/ffmpeg4kj.git")
+                    developerConnection.set("git@github.com:briandilley/ffmpeg4kj.git")
+                    url.set("https://github.com/briandilley/ffmpeg4kj")
+                }
+                distributionManagement {
+                    downloadUrl.set("https://github.com/briandilley/ffmpeg4kj/releases")
+                }
+            }
+        }
+    }
+}
+
+project.signing {
+    isRequired = releaseVersion && (tasks.withType<PublishToMavenRepository>().find {
+        gradle.taskGraph.hasTask(it)
+    } != null)
+
+    sign(publishing.publications)
+}
