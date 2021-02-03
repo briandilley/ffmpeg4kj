@@ -1,17 +1,9 @@
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
 import java.net.URI
+import java.util.Date
 
 val GENERATED_SOURCE_DIR = "${project.rootDir}/native/src/generated"
 val HOST_ARCH = "${System.getProperty("os.name").toLowerCase().replace("mac os x", "darwin")}-${System.getProperty("os.arch").toLowerCase()}"
-val NATIVE_ARCHITECTURES = setOf(
-    HOST_ARCH,
-    "darwin-x86_64"
-    //"linux-x86",
-    //"linux-x86_64",
-    //"linux-armv6",
-    //"linux-armv7",
-    //"linux-arm64"
-)
 val JAVA_TARGET_VERSION = "1.8"
 
 buildscript {
@@ -34,27 +26,6 @@ plugins {
     jacoco
     idea
     signing
-}
-
-fun buildNative(arch: String = HOST_ARCH) {
-    val nativeWorkDir = "${project.rootDir}/native/cmake-build-$arch-Release"
-    exec {
-        workingDir("${project.rootDir}/native")
-        environment["JAVA_HOME"] = System.getenv("JAVA_HOME")
-        if (arch == HOST_ARCH) {
-            commandLine("sh", "./scripts/build.sh", "-a", arch)
-        } else {
-            commandLine("sh", "./scripts/cross-build.sh", "-a", arch)
-        }
-    }
-    val exit = exec {
-        workingDir("${nativeWorkDir}/package")
-        commandLine("zip", "-1", "-r", "-u", "${nativeWorkDir}/libffmpeg4kj_jni-${arch}.zip", "./")
-        isIgnoreExitValue = true
-    }.exitValue
-    if (exit !=0 && exit != 12) {
-        throw GradleException("Zip exit was not 0 or 12")
-    }
 }
 
 repositories {
@@ -82,7 +53,21 @@ description = """
     Usable with Kotlin, Java, or any other JVM language.
     """.trimIndent()
 
+
+
+fun findConfigProperty(name: String): String?
+        = (project.findProperty("ffmpeg4kj.$name") ?: project.findProperty(name))?.toString()
+
+val signingSecretKeyRingFile = findConfigProperty("signing.secretKeyRingFile")
+val signingPassword = findConfigProperty("signing.password")
+val signingKeyId = findConfigProperty("signing.keyId")
+val githubToken = findConfigProperty("github.token")
+val sonatypeUsername = findConfigProperty("sonatype.username")
+val sonatypePassword = findConfigProperty("sonatype.password")
+
 val releaseVersion = !version.toString().endsWith("-SNAPSHOT")
+val arch = project.properties["arch"] ?: HOST_ARCH
+val buildCmd = if (arch == HOST_ARCH) { "./scripts/build.sh" } else { "./scripts/cross-build.sh" }
 
 var documentationJar: Any? = null
 var sourcesJar: Any? = null
@@ -112,48 +97,84 @@ tasks {
         finalizedBy("jacocoTestReport")
     }
 
-    register("generateNativeHeaders", Task::class) {
-        inputs.files(sourceSets["main"].allSource)
-        outputs.dir(GENERATED_SOURCE_DIR)
-
-        exec {
-            commandLine(
-                "${project.rootDir}/tools/gjavah.sh",
-                "-d", GENERATED_SOURCE_DIR,
-                "-classpath", (sourceSets["main"].runtimeClasspath + sourceSets["main"].output).filter { it.exists() }.asPath,
-                sourceSets["main"].output.asFileTree.matching { include("**/*.class") }.joinToString(separator = " "))
-        }
-
-        finalizedBy("compileNative")
+    classes {
+        finalizedBy("buildNativeArchve")
     }
 
-    register("compileNative", Task::class) {
-        inputs.files(fileTree("${project.rootDir}/native/src"))
-        inputs.files(fileTree(GENERATED_SOURCE_DIR))
+    register("generateNativeHeaders", Task::class) {
+        dependsOn("classes")
+        inputs.files(sourceSets["main"].output.classesDirs)
+        outputs.files(fileTree(GENERATED_SOURCE_DIR))
 
-        NATIVE_ARCHITECTURES.forEach {
-            outputs.dir("${project.rootDir}/native/cmake-build-$it-Release")
-            outputs.file("${project.rootDir}/native/cmake-build-$it-Release/libffmpeg4kj_jni-${it}.zip")
-            outputs.file("${project.rootDir}/kotlin/src/main/resources/native/${it}/libffmpeg4kj_jni.zip")
-        }
         doLast {
-            NATIVE_ARCHITECTURES.forEach {
-                buildNative(it)
-            }
-            NATIVE_ARCHITECTURES.forEach {
-                File("${project.rootDir}/kotlin/src/main/resources/native").mkdirs()
-                val from = File("${project.rootDir}/native/cmake-build-$it-Release/libffmpeg4kj_jni-${it}.zip")
-                val to = File("${project.rootDir}/kotlin/src/main/resources/native/${it}/libffmpeg4kj_jni.zip")
-                from.copyTo(to, overwrite = true)
+            exec {
+                commandLine(
+                    "${project.rootDir}/tools/gjavah.sh",
+                    "-d", GENERATED_SOURCE_DIR,
+                    "-classpath", (sourceSets["main"].runtimeClasspath + sourceSets["main"].output).filter { it.exists() }.asPath,
+                    sourceSets["main"].output.asFileTree.matching { include("**/*.class") }.joinToString(separator = " "))
             }
         }
+    }
+
+    register("generateCMakeProjects", Task::class) {
+        dependsOn("generateNativeHeaders")
+        inputs.files(fileTree("${project.rootDir}/native").matching {
+            include("**/CMakeLists.txt")
+            include("**/*.cmake")
+            exclude("cmake-build-$arch-Release/**")
+        })
+        outputs.files(file("${project.rootDir}/native/cmake-build-$arch-Release/created-at"))
+
+        doLast {
+            exec {
+                workingDir("${project.rootDir}/native")
+                environment["JAVA_HOME"] = System.getenv("JAVA_HOME")
+                commandLine("sh", buildCmd, "-a", arch, "-g")
+            }
+        }
+    }
+
+    register("buildNative", Task::class) {
+        dependsOn("generateCMakeProjects")
+        inputs.files(fileTree("${project.rootDir}/native").matching {
+            include("**/*")
+            include("cmake-build-$arch-Release/created-at")
+            exclude("**/CMakeLists.txt")
+            exclude("**/*.cmake")
+            exclude("cmake-build-$arch-Release/**")
+        })
+        outputs.files(fileTree("${project.rootDir}/native/cmake-build-$arch-Release").matching {
+            include("package/**")
+        })
+
+        doLast {
+            exec {
+                workingDir("${project.rootDir}/native")
+                environment["JAVA_HOME"] = System.getenv("JAVA_HOME")
+                commandLine("sh", buildCmd, "-a", arch, "-b")
+            }
+        }
+    }
+
+    register("buildNativeArchve", Zip::class) {
+        dependsOn("buildNative")
+        inputs.files(fileTree("${project.rootDir}/native/cmake-build-$arch-Release").matching {
+            include("package/**")
+        })
+        outputs.files(fileTree("${project.rootDir}/native/cmake-build-$arch-Release").matching {
+            include("package/**")
+        })
+
+        archiveFileName.set("libffmpeg4kj_jni-$arch.zip")
+        destinationDirectory.set(file("${project.rootDir}/kotlin/src/main/resources/native/$arch"))
+        from("${project.rootDir}/native/cmake-build-$arch-Release/package")
     }
 
     register("cleanNative", Delete::class) {
         delete(GENERATED_SOURCE_DIR)
-        NATIVE_ARCHITECTURES.forEach {
-            delete("${project.rootDir}/native/cmake-build-$it-Release")
-        }
+        delete("${project.rootDir}/native/cmake-build-$arch-Release")
+        delete("${project.rootDir}/kotlin/src/main/resources/native")
     }
 
     /**
@@ -166,8 +187,6 @@ tasks {
         kotlinOptions {
             jvmTarget = JAVA_TARGET_VERSION
         }
-
-        finalizedBy("generateNativeHeaders")
     }
 
     clean {
@@ -206,16 +225,6 @@ tasks {
     }
 
 }
-
-fun findConfigProperty(name: String): String?
-        = (project.findProperty("ffmpeg4kj.$name") ?: project.findProperty(name))?.toString()
-
-val signingSecretKeyRingFile = findConfigProperty("signing.secretKeyRingFile")
-val signingPassword = findConfigProperty("signing.password")
-val signingKeyId = findConfigProperty("signing.keyId")
-val githubToken = findConfigProperty("github.token")
-val sonatypeUsername = findConfigProperty("sonatype.username")
-val sonatypePassword = findConfigProperty("sonatype.password")
 
 project.publishing {
     repositories {

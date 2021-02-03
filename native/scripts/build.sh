@@ -4,14 +4,22 @@
 
 BUILD_TYPE="Release"
 BUILD_ARCH="default"
+GENERATE="no"
+BUILD="no"
 
-while getopts ":b:a:" arg; do
+while getopts ":t:a:gb" arg; do
   case ${arg} in
-    b)
+    t)
       BUILD_TYPE="${OPTARG}"
       ;;
     a)
       BUILD_ARCH="${OPTARG}"
+      ;;
+    g)
+      GENERATE="yes"
+      ;;
+    b)
+      BUILD="yes"
       ;;
     ?)
       echo "Invalid option: -${arg} ${OPTARG}"
@@ -27,6 +35,13 @@ GENERATION_DIR="cmake-build-${BUILD_ARCH}-${BUILD_TYPE}"
 echo "BUILD_TYPE: $BUILD_TYPE"
 echo "BUILD_ARCH: $BUILD_ARCH"
 echo "GENERATION_DIR: $GENERATION_DIR"
+echo "GENERATE: $GENERATE"
+echo "BUILD: $BUILD"
+
+if [ "$GENERATE" = "yes" ];
+then
+  rm -rf "$GENERATION_DIR"
+fi
 
 if [ ! -e "$GENERATION_DIR/created-at" ];
 then
@@ -37,7 +52,9 @@ then
     && date > "created-at" \
     && cd ..
 fi
-
-cd "$GENERATION_DIR/.." \
-  && pwd \
-  && cmake --build "$GENERATION_DIR" --target all --config "$BUILD_TYPE" -- -j 8
+if [ "$BUILD" = "yes" ];
+then
+  cd "$GENERATION_DIR/.." \
+    && pwd \
+    && cmake --build "$GENERATION_DIR" --target all --config "$BUILD_TYPE" -- -j 8
+fi
