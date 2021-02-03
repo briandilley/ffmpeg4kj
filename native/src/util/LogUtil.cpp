@@ -1,4 +1,3 @@
-
 #include "LogUtil.h"
 
 using namespace ffmpeg4kj::util;

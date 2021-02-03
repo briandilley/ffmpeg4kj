@@ -1,7 +1,7 @@
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
 import java.net.URI
 
-val GENERATED_SOURCE_DIR = "${project.rootDir}/native/src/main/generated"
+val GENERATED_SOURCE_DIR = "${project.rootDir}/native/src/generated"
 val HOST_ARCH = "${System.getProperty("os.name").toLowerCase().replace("mac os x", "darwin")}-${System.getProperty("os.arch").toLowerCase()}"
 val NATIVE_ARCHITECTURES = setOf(
     HOST_ARCH,
@@ -65,7 +65,7 @@ repositories {
 
 dependencies {
 
-    dokkaHtmlPlugin("org.jetbrains.dokka:kotlin-as-java-plugin:1.4.21")
+    dokkaHtmlPlugin("org.jetbrains.dokka:kotlin-as-java-plugin:1.4.20")
 
     //api "org.jetbrains.kotlin:kotlin-reflect:${kotlinVersion}"
 
@@ -112,32 +112,31 @@ tasks {
         finalizedBy("jacocoTestReport")
     }
 
-    /**
-     * Custom logic on compile
-     */
-    compileKotlin {
-        sourceCompatibility = JAVA_TARGET_VERSION
-        targetCompatibility = JAVA_TARGET_VERSION
+    register("generateNativeHeaders", Task::class) {
+        inputs.files(sourceSets["main"].allSource)
+        outputs.dir(GENERATED_SOURCE_DIR)
 
-        kotlinOptions {
-            jvmTarget = JAVA_TARGET_VERSION
+        exec {
+            commandLine(
+                "${project.rootDir}/tools/gjavah.sh",
+                "-d", GENERATED_SOURCE_DIR,
+                "-classpath", (sourceSets["main"].runtimeClasspath + sourceSets["main"].output).filter { it.exists() }.asPath,
+                sourceSets["main"].output.asFileTree.matching { include("**/*.class") }.joinToString(separator = " "))
         }
 
-        inputs.files(fileTree("${project.rootDir}/native/src/main"))
+        finalizedBy("compileNative")
+    }
+
+    register("compileNative", Task::class) {
+        inputs.files(fileTree("${project.rootDir}/native/src"))
+        inputs.files(fileTree(GENERATED_SOURCE_DIR))
+
         NATIVE_ARCHITECTURES.forEach {
-            outputs.files(fileTree("${project.rootDir}/native/cmake-build-$it-Release"))
+            outputs.dir("${project.rootDir}/native/cmake-build-$it-Release")
             outputs.file("${project.rootDir}/native/cmake-build-$it-Release/libffmpeg4kj_jni-${it}.zip")
             outputs.file("${project.rootDir}/kotlin/src/main/resources/native/${it}/libffmpeg4kj_jni.zip")
         }
-
         doLast {
-            exec {
-                commandLine(
-                    "${project.rootDir}/tools/gjavah.sh",
-                    "-d", GENERATED_SOURCE_DIR,
-                    "-classpath", (sourceSets["main"].runtimeClasspath + sourceSets["main"].output).filter { it.exists() }.asPath,
-                    sourceSets["main"].output.asFileTree.matching { include("**/*.class") }.joinToString(separator = " "))
-            }
             NATIVE_ARCHITECTURES.forEach {
                 buildNative(it)
             }
@@ -150,23 +149,29 @@ tasks {
         }
     }
 
-    /**
-     * Custom logic on clean
-     */
-    clean {
-        doLast {
-            if (file(GENERATED_SOURCE_DIR).exists()) {
-                println("Deleting $GENERATED_SOURCE_DIR")
-                file(GENERATED_SOURCE_DIR).deleteRecursively()
-            }
-        }
+    register("cleanNative", Delete::class) {
+        delete(GENERATED_SOURCE_DIR)
         NATIVE_ARCHITECTURES.forEach {
-            val dir = "${project.rootDir}/native/cmake-build-$it-Release"
-            if (file(dir).exists()) {
-                println("Deleting $dir")
-                file(dir).deleteRecursively()
-            }
+            delete("${project.rootDir}/native/cmake-build-$it-Release")
         }
+    }
+
+    /**
+     * Custom logic on compile
+     */
+    compileKotlin {
+        sourceCompatibility = JAVA_TARGET_VERSION
+        targetCompatibility = JAVA_TARGET_VERSION
+
+        kotlinOptions {
+            jvmTarget = JAVA_TARGET_VERSION
+        }
+
+        finalizedBy("generateNativeHeaders")
+    }
+
+    clean {
+        finalizedBy("cleanNative")
     }
 
     jacoco {

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-set(CMAKE_VERBOSE_MAKEFILE ON)
+# set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_C_STANDARD 11)
 
@@ -8,7 +8,7 @@ include(ExternalProject)
 project(ffmpeg4kj C CXX)
 
 set(THIRDPARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty)
-set(GENERATED_DIR ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+set(GENERATED_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
 
 # Determine the platform.
 if("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
@@ -113,35 +113,4 @@ set(UTFCPP_INCLUDE_DIRS
 
 
 # the projects
-add_subdirectory(src/av)
-add_subdirectory(src/util)
-
-
-
-# and the project that brings it all together
-project(ffmpeg4kj_jni C CXX)
-
-# configure our project
-add_library(ffmpeg4kj_jni SHARED
-        FFMpeg4KJ_jni.cpp)
-
-set_target_properties(ffmpeg4kj_jni PROPERTIES
-        C_STANDARD 99
-        CXX_STANDARD 17
-        CXX_EXTENSIONS OFF
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON)
-
-target_include_directories(ffmpeg4kj_jni PUBLIC
-        ffmpeg4kj_util
-        ffmpeg4kj_av
-        ${CMAKE_CURRENT_SOURCE_DIR})
-
-target_link_directories(ffmpeg4kj_jni PUBLIC
-        ${FFMPEG_INCLUDE_DIRS}
-        ${FFMPEG_LIBRARY_DIRS})
-
-target_link_libraries(ffmpeg4kj_jni PRIVATE
-        ffmpeg4kj_util
-        ffmpeg4kj_av
-        ${FFMPEG_LIBRARIES})
+add_subdirectory(src)

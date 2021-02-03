@@ -20,4 +20,5 @@ JNIEXPORT void JNICALL Java_ffmpeg4kj_SFFMpeg4KJ_configureNativeLibraries
     JavaVM* vm = nullptr;
     env->GetJavaVM(&vm);
     init_jni(vm);
+
 }
