@@ -1,0 +1,28 @@
+FROM dockcross/linux-x64
+
+ENV DEFAULT_DOCKCROSS_IMAGE custom-dockcross-linux-x86_64
+
+RUN mkdir -p /usr/share/man/man1
+
+RUN apt-get update --fix-missing
+
+RUN apt-get install \
+    openjdk-11-jdk \
+    git \
+    -y
+
+RUN (cd /opt \
+        && git clone "https://github.com/pocoproject/poco.git" \
+        && cd poco \
+        && mkdir cmake_build \
+        && cd cmake_build \
+        && cmake .. \
+        && make -j 8 \
+        && sudo make install \
+        && cd "../../" \
+        && rm -rvf poco)
+
+RUN (cd /opt \
+        && git clone "https://github.com/bytedeco/javacpp-presets.git" \
+        && cd javacpp-presets \
+        && ./cppbuild.sh -platform linux-x86_64 install ffmpeg)

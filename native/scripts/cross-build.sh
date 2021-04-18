@@ -5,6 +5,8 @@
 BUILD_TYPE="Release"
 BUILD_ARCH="default"
 BUILD_OPTS=""
+GENERATE="no"
+BUILD="no"
 
 while getopts ":t:a:gb" arg; do
   case ${arg} in
@@ -33,5 +35,5 @@ while getopts ":t:a:gb" arg; do
 done
 
 cd "$PROJECT_DIR"
-DOCK_CROSS_IMAGE=$BUILD_ARCH "./scripts/dockcross.sh" "./scripts/build.sh ${BUILD_OPTS}"
+DOCK_CROSS_IMAGE=$BUILD_ARCH "./scripts/dockcross.sh" ./scripts/build.sh ${BUILD_OPTS}
 
